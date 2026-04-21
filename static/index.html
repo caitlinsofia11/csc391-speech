@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Voice Memo Analyzer</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; background: #f5f5f5; }
+    h1 { color: #0078d4; }
+    .card { background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    button { background: #0078d4; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin: 5px; font-size: 16px; }
+    button:hover { background: #005a9e; }
+    button:disabled { background: #ccc; }
+    button.recording { background: #d40000; }
+    .tag { display: inline-block; background: #e3f2fd; color: #0078d4; padding: 4px 10px; border-radius: 12px; margin: 3px; font-size: 14px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 8px; border-bottom: 1px solid #ddd; }
+    th { background: #f0f0f0; }
+    .sentiment-positive { color: green; font-weight: bold; }
+    .sentiment-negative { color: red; font-weight: bold; }
+    .sentiment-neutral { color: gray; font-weight: bold; }
+    #status { color: #666; font-style: italic; }
+    audio { width: 100%; margin-top: 10px; }
+    #results { display: none; }
+  </style>
+</head>
+<body>
+  <h1>🎙️ Voice Memo Analyzer</h1>
+
+  <div class="card">
+    <h2>Record or Upload a Memo</h2>
+    <div>
+      <button id="recordBtn" onclick="toggleRecording()">🎙️ Start Recording</button>
+      <span id="status">Ready</span>
+    </div>
+    <br/>
+    <div>
+      <label>Or upload a file:</label><br/>
+      <input type="file" id="fileInput" accept=".wav,.mp3" />
+    </div>
+    <br/>
+    <button onclick="submitAudio()" id="submitBtn">🚀 Submit</button>
+  </div>
+
+  <div id="results">
+    <div class="card">
+      <h2>📝 Transcript</h2>
+      <p id="transcriptText"></p>
+    </div>
+
+    <div class="card">
+      <h2>🔑 Key Phrases</h2>
+      <div id="keyPhrases"></div>
+    </div>
+
+    <div class="card">
+      <h2>🏷️ Named Entities</h2>
+      <table>
+        <thead><tr><th>Text</th><th>Category</th><th>Confidence</th></tr></thead>
+        <tbody id="entitiesTable"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>😊 Sentiment</h2>
+      <p id="sentimentText"></p>
+    </div>
+
+    <div class="card">
+      <h2>🔊 Audio Summary</h2>
+      <audio id="audioPlayer" controls></audio>
+    </div>
+  </div>
+
+  <script>
+    let mediaRecorder;
+    let audioChunks = [];
+    let isRecording = false;
+    let recordedBlob = null;
+
+    async function toggleRecording() {
+      const btn = document.getElementById('recordBtn');
+      const status = document.getElementById('status');
+
+      if (!isRecording) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        audioChunks = [];
+
+        mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+        mediaRecorder.onstop = () => {
+          recordedBlob = new Blob(audioChunks, { type: 'audio/wav' });
+          status.textContent = 'Recording saved! Click Submit.';
+        };
+
+        mediaRecorder.start();
+        isRecording = true;
+        btn.textContent = '⏹️ Stop Recording';
+        btn.classList.add('recording');
+        status.textContent = 'Recording...';
+      } else {
+        mediaRecorder.stop();
+        mediaRecorder.stream.getTracks().forEach(t => t.stop());
+        isRecording = false;
+        btn.textContent = '🎙️ Start Recording';
+        btn.classList.remove('recording');
+      }
+    }
+
+    async function submitAudio() {
+      const fileInput = document.getElementById('fileInput');
+      const submitBtn = document.getElementById('submitBtn');
+      const status = document.getElementById('status');
+
+      let audioBlob = null;
+      let filename = 'recording.wav';
+
+      if (fileInput.files.length > 0) {
+        audioBlob = fileInput.files[0];
+        filename = fileInput.files[0].name;
+      } else if (recordedBlob) {
+        audioBlob = recordedBlob;
+      } else {
+        alert('Please record audio or upload a file first!');
+        return;
+      }
+
+      submitBtn.disabled = true;
+      status.textContent = 'Processing... this may take 30-60 seconds.';
+      document.getElementById('results').style.display = 'none';
+
+      const formData = new FormData();
+      formData.append('audio', audioBlob, filename);
+
+      try {
+        const response = await fetch('/process', { method: 'POST', body: formData });
+        const data = await response.json();
+
+        if (data.error) {
+          status.textContent = 'Error: ' + data.error;
+          return;
+        }
+
+        // Transcript
+        document.getElementById('transcriptText').textContent = data.transcript || 'No transcript';
+
+        // Key phrases
+        const kpDiv = document.getElementById('keyPhrases');
+        kpDiv.innerHTML = (data.key_phrases || []).map(p => `<span class="tag">${p}</span>`).join('') || 'None found';
+
+        // Entities
+        const tbody = document.getElementById('entitiesTable');
+        tbody.innerHTML = (data.entities || []).map(e =>
+          `<tr><td>${e.text}</td><td>${e.category}</td><td>${(e.confidence * 100).toFixed(1)}%</td></tr>`
+        ).join('') || '<tr><td colspan="3">None found</td></tr>';
+
+        // Sentiment
+        const s = data.sentiment || {};
+        const label = s.label || 'neutral';
+        document.getElementById('sentimentText').innerHTML =
+          `Sentiment: <span class="sentiment-${label}">${label.toUpperCase()}</span>` +
+          (s.scores ? ` (Positive: ${(s.scores.positive*100).toFixed(1)}%, Neutral: ${(s.scores.neutral*100).toFixed(1)}%, Negative: ${(s.scores.negative*100).toFixed(1)}%)` : '');
+
+        // Audio
+        if (data.audio_base64) {
+          const audioEl = document.getElementById('audioPlayer');
+          audioEl.src = 'data:audio/mp3;base64,' + data.audio_base64;
+        }
+
+        document.getElementById('results').style.display = 'block';
+        status.textContent = 'Done!';
+      } catch (err) {
+        status.textContent = 'Error: ' + err.message;
+      } finally {
+        submitBtn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>
