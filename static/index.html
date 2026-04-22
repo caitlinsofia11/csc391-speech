@@ -89,7 +89,7 @@
 
         mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
         mediaRecorder.onstop = () => {
-          recordedBlob = new Blob(audioChunks, { type: 'audio/wav' });
+          recordedBlob = new Blob(audioChunks, { type: 'audio/webm' });
           status.textContent = 'Recording saved! Click Submit.';
         };
 
@@ -113,7 +113,7 @@
       const status = document.getElementById('status');
 
       let audioBlob = null;
-      let filename = 'recording.wav';
+      let filename = 'recording.webm';
 
       if (fileInput.files.length > 0) {
         audioBlob = fileInput.files[0];
