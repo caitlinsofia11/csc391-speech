@@ -49,6 +49,15 @@ session_log = []
 def transcribe(audio_path):
     speech_config = speechsdk.SpeechConfig(subscription=speech_key, region=speech_region)
     speech_config.request_word_level_timestamps()
+if audio_path.endswith('.webm') or audio_path.endswith('.ogg'):
+    stream_format = speechsdk.audio.AudioStreamFormat.get_compressed_format_from_stream_type(
+        speechsdk.AudioStreamContainerFormat.OGG_OPUS)
+    stream = speechsdk.audio.PushAudioInputStream(stream_format)
+    with open(audio_path, 'rb') as f:
+        stream.write(f.read())
+    stream.close()
+    audio_config = speechsdk.AudioConfig(stream=stream)
+else:
     audio_config = speechsdk.AudioConfig(filename=audio_path)
     recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_config)
 
